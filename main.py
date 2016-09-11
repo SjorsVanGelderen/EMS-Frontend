@@ -18,11 +18,12 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 
-import gi
-gi.require_version("Gtk", "3.0")
-from gi.repository import Gtk, Gio, Gdk
+from os import stat, getuid
+from subprocess import call
 
-from os import stat
+from gi import require_version
+require_version("Gtk", "3.0")
+from gi.repository import Gtk, Gio, Gdk
 
 # When the search key-combination is pressed
 def on_key_search(widget, event = None):
@@ -39,8 +40,7 @@ def on_button_search(button):
 
 # When the add button is pressed
 def on_button_add(button):
-    dialog = Gtk.FileChooserDialog("Select ROM files",
-                                   window, Gtk.FileChooserAction.OPEN,
+    dialog = Gtk.FileChooserDialog("Select ROM files", window, Gtk.FileChooserAction.OPEN,
                                    (Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
                                     Gtk.STOCK_OPEN,   Gtk.ResponseType.OK))
     
@@ -213,5 +213,19 @@ window.set_titlebar(header_bar)
 window.add(layout_box_main)
 window.connect("key-press-event", on_key_search)
 window.connect("delete-event", Gtk.main_quit)
-window.show_all()
+
+# Check user privileges
+if getuid() != 0:        
+    dialog = Gtk.MessageDialog(window, 0, Gtk.MessageType.INFO, Gtk.ButtonsType.OK,
+                               "This program requires super user privileges!\n" \
+                               "Try running it with the sudo command.")
+    
+    dialog.run()
+    dialog.destroy()
+    quit()
+else:
+    # call(["./ems-flasher", "--title"])
+    window.show_all()
+
+# Start running the GTK process
 Gtk.main()
