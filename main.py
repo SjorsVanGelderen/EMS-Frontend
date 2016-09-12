@@ -41,12 +41,21 @@ def on_button_search(button):
 # When the flash button is pressed
 def on_button_flash(button):
     dialog = Gtk.MessageDialog(window, 0, Gtk.MessageType.INFO,
-                               Gtk.ButtonsType.OK,
+                               Gtk.ButtonsType.YES_NO,
                                "Flash")
     
-    dialog.format_secondary_text("Please wait until the flashing operation is finished.")
-    dialog.run()
+    dialog.format_secondary_text("Are you sure you wish to flash the changes to the cartridge?")
+    response = dialog.run()
     dialog.destroy()
+
+    if response == Gtk.ResponseType.YES:
+        dialog = Gtk.MessageDialog(window, 0, Gtk.MessageType.INFO,
+                                   Gtk.ButtonsType.OK,
+                                   "Flash")
+        
+        dialog.format_secondary_text("Please wait until the flashing operation is finished.")
+        dialog.run()
+        dialog.destroy()
     
 # When the add button is pressed
 def on_button_add(button):
