@@ -18,7 +18,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 
-from os import stat, getuid
+from os import stat, getuid, path, getcwd
 from subprocess import call
 
 from gi import require_version
@@ -38,6 +38,16 @@ def on_key_search(widget, event = None):
 def on_button_search(button):
     search_bar.set_search_mode(not search_bar.get_search_mode())
 
+# When the flash button is pressed
+def on_button_flash(button):
+    dialog = Gtk.MessageDialog(window, 0, Gtk.MessageType.INFO,
+                               Gtk.ButtonsType.OK,
+                               "Flash")
+    
+    dialog.format_secondary_text("Please wait until the flashing operation is finished.")
+    dialog.run()
+    dialog.destroy()
+    
 # When the add button is pressed
 def on_button_add(button):
     dialog = Gtk.FileChooserDialog("Select ROM files", window, Gtk.FileChooserAction.OPEN,
@@ -72,16 +82,19 @@ def on_button_remove(button):
         iter = model.get_iter(path)
         model.remove(iter)
 
-# When the flash button is pressed
-def on_button_flash(button):
+# When the format button is pressed
+def on_button_format(button):
     dialog = Gtk.MessageDialog(window, 0, Gtk.MessageType.INFO,
-                               Gtk.ButtonsType.OK,
-                               "Flashing to smart card...")
+                               Gtk.ButtonsType.YES_NO,
+                               "Format")
     
-    dialog.format_secondary_text("Please wait until the operation is finished.")
-    dialog.run()
+    dialog.format_secondary_text("Are you sure you wish to format the cartridge?")
+    response = dialog.run()
     dialog.destroy()
 
+    if response == Gtk.ResponseType.YES:
+        call(["./ems-flasher", "--verbose", "--format"])
+        
 # ROM lists
 rom_lists = []
 
@@ -167,6 +180,14 @@ layout_box_main = Gtk.Box(orientation = Gtk.Orientation.VERTICAL, spacing = 6)
 layout_box_main.add(search_bar)
 layout_box_main.add(stack_pages)
 
+# Flash button
+icon_flash   = Gio.ThemedIcon(name = "document-send")
+image_flash  = Gtk.Image.new_from_gicon(icon_flash, Gtk.IconSize.BUTTON)
+button_flash = Gtk.Button()
+button_flash.connect("clicked", on_button_flash)
+button_flash.add(image_flash)
+button_flash.set_tooltip_text("Flash changes to the cartridge")
+
 # Add button
 icon_add   = Gio.ThemedIcon(name = "list-add")
 image_add  = Gtk.Image.new_from_gicon(icon_add, Gtk.IconSize.BUTTON)
@@ -183,13 +204,13 @@ button_remove.connect("clicked", on_button_remove)
 button_remove.add(image_remove)
 button_remove.set_tooltip_text("Remove selected ROMs from this page")
 
-# Flash button
-icon_flash   = Gio.ThemedIcon(name = "document-send")
-image_flash  = Gtk.Image.new_from_gicon(icon_flash, Gtk.IconSize.BUTTON)
-button_flash = Gtk.Button()
-button_flash.connect("clicked", on_button_flash)
-button_flash.add(image_flash)
-button_flash.set_tooltip_text("Flash changes to the cartridge")
+# Format button
+icon_format   = Gio.ThemedIcon(name = "edit-clear")
+image_format  = Gtk.Image.new_from_gicon(icon_format, Gtk.IconSize.BUTTON)
+button_format = Gtk.Button()
+button_format.connect("clicked", on_button_format)
+button_format.add(image_format)
+button_format.set_tooltip_text("Format the cartridge")
 
 # Header bar
 header_bar = Gtk.HeaderBar()
@@ -197,9 +218,10 @@ header_bar.set_show_close_button(True)
 header_bar.props.title = "GB USB Smart Card Flasher"
 header_bar.pack_start(stack_switcher_pages)
 header_bar.pack_end(button_search)
+header_bar.pack_end(button_flash)
 header_bar.pack_end(button_add)
 header_bar.pack_end(button_remove)
-header_bar.pack_end(button_flash)
+header_bar.pack_end(button_format)
 
 # Spinner
 # spinner = Gtk.Spinner()
@@ -223,9 +245,17 @@ if getuid() != 0:
     dialog.run()
     dialog.destroy()
     quit()
-else:
-    # call(["./ems-flasher", "--title"])
-    window.show_all()
+else:    
+    if path.isfile(getcwd() + "ems-flasher"):
+        dialog = Gtk.MessageDialog(window, 0, Gtk.MessageType.INFO, Gtk.ButtonsType.OK,
+                               "The EMS flasher utility should be in the base directory!\n" \
+                                "Unfortunately, it wasn't found.")
+    
+        dialog.run()
+        dialog.destroy()
+        quit()
+    else:
+        window.show_all()
 
 # Start running the GTK process
 Gtk.main()
