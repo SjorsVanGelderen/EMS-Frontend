@@ -1,13 +1,20 @@
-# EMS Frontend
-GTK3 frontend for EMS Flasher
+# EMS Front-end
+GTK3 front-end for [EMS flasher](https://github.com/mikeryan/ems-flasher) 
 
-[![Packagist](https://img.shields.io/badge/status-experimental-orange.svg)]()
+[![Packagist](https://img.shields.io/badge/status-alpha-orange.svg)]()
 [![Packagist](https://img.shields.io/badge/license-GPLv3-blue.svg)]()  
+
+![](screenshot.png) 
 
 Written in Python 3.  
 Uses PyGObject bindings.  
-Currently not ready for use.  
 
-Note: The rom files are all fake, they're used for testing the file picker only.
+***
 
-
+##Todo:  
+- Implement space indication bars properly
+- Test flashing large ROMs
+- Add  async and spinner for non-blocking operation
+- Bundle with EMS flasher
+- Build deb / rpm / etc packages
+- Properly handle errors

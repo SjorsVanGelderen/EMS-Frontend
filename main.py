@@ -1,7 +1,7 @@
-#!/usr/bin/python
+#!/usr/bin/python3
 
 """
-EMS Frontend - GTK3 frontend for EMS flasher
+EMS Front-end - GTK3 front-end for EMS flasher
 Copyright (C) 2016  Sjors van Gelderen
 
 This program is free software: you can redistribute it and/or modify
@@ -19,7 +19,8 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 
 from os import stat, getuid, path, getcwd
-from subprocess import call
+from subprocess import Popen, PIPE
+from time import sleep
 
 from gi import require_version
 require_version("Gtk", "3.0")
@@ -38,25 +39,34 @@ def on_key_search(widget, event = None):
 def on_button_search(button):
     search_bar.set_search_mode(not search_bar.get_search_mode())
 
+def on_button_refresh(button):
+    scan_cartridge()
+    
 # When the flash button is pressed
 def on_button_flash(button):
     dialog = Gtk.MessageDialog(window, 0, Gtk.MessageType.INFO,
                                Gtk.ButtonsType.YES_NO,
                                "Flash")
     
-    dialog.format_secondary_text("Are you sure you wish to flash the changes to the cartridge?")
+    dialog.format_secondary_text("Flash the changes to the cartridge?")
     response = dialog.run()
     dialog.destroy()
-
-    if response == Gtk.ResponseType.YES:
-        dialog = Gtk.MessageDialog(window, 0, Gtk.MessageType.INFO,
-                                   Gtk.ButtonsType.OK,
-                                   "Flash")
-        
-        dialog.format_secondary_text("Please wait until the flashing operation is finished.")
-        dialog.run()
-        dialog.destroy()
     
+    if response == Gtk.ResponseType.YES:
+        additions = [[], []]
+        removals  = [[], []]
+        for store in range(0, 2):
+            for entry in list_stores[store]:
+                if entry[2] == "To be removed":
+                    removals[store].append(entry[4])
+                    list_stores[store].remove(entry.iter)
+                elif entry[2] == "To be flashed":
+                    additions[store].append(entry[4])
+                elif entry[2] == "On cartridge":
+                    list_stores[store].remove(entry.iter)
+        
+        flash_cartridge(additions, removals)
+                    
 # When the add button is pressed
 def on_button_add(button):
     dialog = Gtk.FileChooserDialog("Select ROM files", window, Gtk.FileChooserAction.OPEN,
@@ -71,25 +81,43 @@ def on_button_add(button):
     
     dialog.set_select_multiple(True)
     response = dialog.run()
-
+    
     page_id = stack_pages.get_visible_child_name()
     target_store = list_stores[0] if page_id  == "page_1" else list_stores[1]
     if response == Gtk.ResponseType.OK:
-       for filename in dialog.get_filenames():
-           target_store.append((filename,
-                                "{} bytes".format(str(stat(filename).st_size)),
-                                "Ready to flash", "#BDECB6"))
+       for path in dialog.get_filenames():           
+           filename = path.split("/")
+           filename = filename[len(filename) - 1]
+           
+           duplicate = False
+           for store in list_stores:
+               for entry in store:
+                   if entry[2] == filename:
+                       duplicate = True
+                       break
+
+           if not duplicate:
+               target_store.append((filename,
+                                    int(stat(path).st_size / 1024),
+                                    "To be flashed",
+                                    "N/A",
+                                    path,
+                                    "#BDECB6"))
            
     dialog.destroy()
 
 # When the remove button is pressed
 def on_button_remove(button):
     page_id = stack_pages.get_visible_child_name()
+    target_store = list_stores[0] if page_id  == "page_1" else list_stores[1]
     target_tree_view = tree_views[0] if page_id == "page_1" else tree_views[1]
     model, paths = target_tree_view.get_selection().get_selected_rows()
     for path in paths:
         iter = model.get_iter(path)
-        model.remove(iter)
+        if target_store[iter][2] == "On cartridge":
+            target_store[iter][2] = "To be removed"
+        else:
+            model.remove(iter)
 
 # When the format button is pressed
 def on_button_format(button):
@@ -102,7 +130,89 @@ def on_button_format(button):
     dialog.destroy()
 
     if response == Gtk.ResponseType.YES:
-        call(["./ems-flasher", "--verbose", "--format"])
+        ems(["--format"], [], "An error occurred while formatting the cartridge!")
+        
+        for store in list_stores:
+            for entry in store:
+                if entry[2] == "To be removed" or entry[2] == "On cartridge":
+                    store.remove(entry.iter)
+
+# When scanning the cartridge contents
+def scan_cartridge():
+    for store in list_stores:
+        for entry in store:
+            if entry[2] == "On cartridge":
+                store.remove(entry.iter)
+    
+    for page in range(1, 3):
+        output = ems(["--bank", str(page), "--title"], [],
+                     "An error occurred while scanning the cartridge contents!")
+        data = output.decode("utf-8")
+        columns = data.split("\n")[0]
+        index_bank  = columns.find("Bank")
+        index_title = columns.find("Title")
+        index_size  = columns.find("Size")
+        index_enhancements = columns.find("Enhancements")
+        
+        titles_data = data[:-79].split("\n")
+        titles_data.pop(0)
+        
+        target_store = list_stores[page - 1]
+        for entry in titles_data:
+            if len(entry) > 0:
+                digits = ""
+                for char in entry[index_size:index_enhancements]:
+                    if char in "0123456789":
+                        digits += char
+                        
+                target_store.append((entry[index_title:index_size],
+                                     int(digits),
+                                     "On cartridge",
+                                     "N/A",
+                                     entry[index_bank:index_title],
+                                     "#FFAAFF"))
+
+# When flashing the cartridge
+def flash_cartridge(additions, removals):
+    output_0 = None
+    output_1 = None
+    for page in range(1, 3):
+        if removals[page -1]:
+            output_0 = ems(["--bank", str(page), "--delete"], removals[page - 1],
+                           "An error occurred while deleting titles from page " + \
+                           str(page) + "!")
+            
+        if additions[page - 1]:
+            output_1 = ems(["--bank", str(page), "--write"], additions[page - 1],
+                           "An error occurred while flashing titles to page " + \
+                           str(page) + "!\n" + "Perhaps one of the ROMs you are" + \
+                           "flashing is already on the cartridge?")
+    
+    if output_0 == None and output_1 == None:
+        dialog = Gtk.MessageDialog(window, 0, Gtk.MessageType.INFO, Gtk.ButtonsType.OK,
+                                   "Changes successfully flashed!")
+        
+        dialog.run()
+        dialog.destroy()
+    
+    scan_cartridge()
+
+# When using the flashing utility
+def ems(commands, queue, error_message):
+    sleep(1) # Wait for the cartridge to become available
+    process = Popen(["ems-flasher"] + commands + queue, stdout = PIPE)
+    output, error = process.communicate()
+    exit_code = process.wait()
+    
+    # Check if the command was executed successfully
+    if exit_code != 0:
+        dialog = Gtk.MessageDialog(window, 0, Gtk.MessageType.ERROR,
+                                   Gtk.ButtonsType.OK, error_message)
+        
+        dialog.run()
+        dialog.destroy()
+            
+    return output
         
 # ROM lists
 rom_lists = []
@@ -111,10 +221,7 @@ rom_lists = []
 list_stores = []
 
 for i in range(0, 2):
-    list_stores.append(Gtk.ListStore(str, str, str, str))
-    
-    # for rom in rom_lists[i]:
-    #     list_stores[i].append(list(rom))
+    list_stores.append(Gtk.ListStore(str, int, str, str, str, str))
 
 # Tree views
 tree_views = []
@@ -122,9 +229,9 @@ tree_views = []
 for i in range(0, 2):
     tree_views.append(Gtk.TreeView(list_stores[i]))
     tree_views[i].get_selection().set_mode(Gtk.SelectionMode.MULTIPLE)
-    for o, column_title in enumerate(["Title", "Size", "Status"]):
+    for o, column_title in enumerate(["Title", "Size(KB)", "Status"]):
         renderer = Gtk.CellRendererText()
-        column   = Gtk.TreeViewColumn(column_title, renderer, text = o, background = 3)
+        column   = Gtk.TreeViewColumn(column_title, renderer, text = o, background = 5)
         column.set_sort_column_id(o)
         column.set_resizable(True)
         column.set_expand(True)
@@ -146,7 +253,7 @@ for i in range(0, 2):
     space_bars[i].set_text("16MB remaining")
     space_bars[i].set_fraction(0.5)
     space_bars[i].set_show_text(True)
-    space_bars[i].set_tooltip_text("Shows the space remaining on this page of the cartridge")
+    space_bars[i].set_tooltip_text("Space remaining on this page of the cartridge")
 
 # Page layout boxes
 layout_boxes = []
@@ -205,6 +312,14 @@ button_add.connect("clicked", on_button_add)
 button_add.add(image_add)
 button_add.set_tooltip_text("Open a file picker to add new ROMs to this page")
 
+# Refresh button
+icon_refresh   = Gio.ThemedIcon(name = "view-refresh")
+image_refresh  = Gtk.Image.new_from_gicon(icon_refresh, Gtk.IconSize.BUTTON)
+button_refresh = Gtk.Button()
+button_refresh.connect("clicked", on_button_refresh)
+button_refresh.add(image_refresh)
+button_refresh.set_tooltip_text("Re-read cartridge contents")
+
 # Remove button
 icon_remove   = Gio.ThemedIcon(name = "list-remove")
 image_remove  = Gtk.Image.new_from_gicon(icon_remove, Gtk.IconSize.BUTTON)
@@ -227,44 +342,24 @@ header_bar.set_show_close_button(True)
 header_bar.props.title = "GB USB Smart Card Flasher"
 header_bar.pack_start(stack_switcher_pages)
 header_bar.pack_end(button_search)
-header_bar.pack_end(button_flash)
-header_bar.pack_end(button_add)
+header_bar.pack_end(Gtk.VSeparator())
 header_bar.pack_end(button_remove)
+header_bar.pack_end(button_add)
+header_bar.pack_end(Gtk.VSeparator())
 header_bar.pack_end(button_format)
-
-# Spinner
-# spinner = Gtk.Spinner()
-# spinner.start()
+header_bar.pack_end(button_flash)
+header_bar.pack_end(button_refresh)
 
 # Window
 window = Gtk.Window()
 window.set_border_width(10)
-window.set_default_size(800, 600)
+window.set_default_size(1024, 768)
 window.set_titlebar(header_bar)
 window.add(layout_box_main)
 window.connect("key-press-event", on_key_search)
 window.connect("delete-event", Gtk.main_quit)
 
-# Check user privileges
-if getuid() != 0:        
-    dialog = Gtk.MessageDialog(window, 0, Gtk.MessageType.INFO, Gtk.ButtonsType.OK,
-                               "This program requires super user privileges!\n" \
-                               "Try running it with the sudo command.")
-    
-    dialog.run()
-    dialog.destroy()
-    quit()
-else:    
-    if path.isfile(getcwd() + "ems-flasher"):
-        dialog = Gtk.MessageDialog(window, 0, Gtk.MessageType.INFO, Gtk.ButtonsType.OK,
-                               "The EMS flasher utility should be in the base directory!\n" \
-                                "Unfortunately, it wasn't found.")
-    
-        dialog.run()
-        dialog.destroy()
-        quit()
-    else:
-        window.show_all()
-
-# Start running the GTK process
+# Initialize the program
+scan_cartridge()
+window.show_all()
 Gtk.main()
