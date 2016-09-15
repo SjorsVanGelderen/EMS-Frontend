@@ -62,6 +62,7 @@ def on_button_flash(button):
                     list_stores[store].remove(entry.iter)
                 elif entry[2] == "To be flashed":
                     additions[store].append(entry[4])
+                    list_stores[store].remove(entry.iter)
                 elif entry[2] == "On cartridge":
                     list_stores[store].remove(entry.iter)
         
@@ -156,7 +157,8 @@ def scan_cartridge():
         
         titles_data = data[:-79].split("\n")
         titles_data.pop(0)
-        
+
+        occupied_space = 0.0
         target_store = list_stores[page - 1]
         for entry in titles_data:
             if len(entry) > 0:
@@ -164,13 +166,21 @@ def scan_cartridge():
                 for char in entry[index_size:index_enhancements]:
                     if char in "0123456789":
                         digits += char
-                        
+                
+                size = int(digits)
+                occupied_space += size
+                
                 target_store.append((entry[index_title:index_size],
-                                     int(digits),
+                                     size,
                                      "On cartridge",
                                      "N/A",
                                      entry[index_bank:index_title],
                                      "#FFAAFF"))
+
+        if occupied_space > 0:
+            space_bars[page - 1].set_text(str('%.2f' % (32 - occupied_space / 1024)) + \
+                                          "MB remaining")
+            space_bars[page - 1].set_fraction(32 / (occupied_space / 1024))
 
 # When flashing the cartridge
 def flash_cartridge(additions, removals):
@@ -250,8 +260,8 @@ space_bars = []
 
 for i in range(0, 2):
     space_bars.append(Gtk.ProgressBar())
-    space_bars[i].set_text("16MB remaining")
-    space_bars[i].set_fraction(0.5)
+    space_bars[i].set_text("32MB remaining")
+    space_bars[i].set_fraction(0.0)
     space_bars[i].set_show_text(True)
     space_bars[i].set_tooltip_text("Space remaining on this page of the cartridge")
 

@@ -11,10 +11,16 @@ Uses PyGObject bindings.
 
 ***
 
-##Todo:  
-- Implement space indication bars properly
+##Notes  
+- This utility hasn't been tested extensively
+- The utility might appear to lock up when flashing
+- Sometimes an error actually freezes the utility
+
+***
+
+##Todo  
 - Test flashing large ROMs
-- Add  async and spinner for non-blocking operation
+- Add async and spinner for non-blocking operation
 - Bundle with EMS flasher
 - Build deb / rpm / etc packages
 - Properly handle errors
