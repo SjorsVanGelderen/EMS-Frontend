@@ -18,6 +18,8 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 
+import re
+
 from os import stat, getuid, path, getcwd
 from subprocess import Popen, PIPE
 from time import sleep
@@ -131,7 +133,8 @@ def on_button_format(button):
     dialog.destroy()
 
     if response == Gtk.ResponseType.YES:
-        ems(["--format"], [], "An error occurred while formatting the cartridge!")
+        ems(["--bank", "1", "--format"], [], "An error occurred while formatting page 1!")
+        ems(["--bank", "2", "--format"], [], "An error occurred while formatting page 2!")
         
         for store in list_stores:
             for entry in store:
@@ -149,38 +152,34 @@ def scan_cartridge():
         output = ems(["--bank", str(page), "--title"], [],
                      "An error occurred while scanning the cartridge contents!")
         data = output.decode("utf-8")
-        columns = data.split("\n")[0]
-        index_bank  = columns.find("Bank")
-        index_title = columns.find("Title")
-        index_size  = columns.find("Size")
-        index_enhancements = columns.find("Enhancements")
+        match_bank  = re.search("Bank",  data)
+        match_title = re.search("Title", data)
+        match_size  = re.search("Size",  data)
+        match_enh   = re.search("Enhancements", data)
         
         titles_data = data[:-79].split("\n")
         titles_data.pop(0)
-
+        
         occupied_space = 0.0
         target_store = list_stores[page - 1]
         for entry in titles_data:
             if len(entry) > 0:
-                digits = ""
-                for char in entry[index_size:index_enhancements]:
-                    if char in "0123456789":
-                        digits += char
-                
-                size = int(digits)
+                size_string   = entry[match_size.start():match_enh.start()]
+                digits_string = re.search("[\d]+", size_string)
+                size = int(digits_string.group())
                 occupied_space += size
                 
-                target_store.append((entry[index_title:index_size],
+                target_store.append((entry[match_title.start():match_size.start()],
                                      size,
                                      "On cartridge",
                                      "N/A",
-                                     entry[index_bank:index_title],
+                                     entry[match_bank.start():match_title.start()],
                                      "#FFAAFF"))
 
         if occupied_space > 0:
             space_bars[page - 1].set_text(str('%.2f' % (32 - occupied_space / 1024)) + \
                                           "MB remaining")
-            space_bars[page - 1].set_fraction(32 / (occupied_space / 1024))
+            space_bars[page - 1].set_fraction(1 - 32 / (occupied_space / 1024))
 
 # When flashing the cartridge
 def flash_cartridge(additions, removals):
@@ -209,16 +208,21 @@ def flash_cartridge(additions, removals):
 
 # When using the flashing utility
 def ems(commands, queue, error_message):
-    sleep(1) # Wait for the cartridge to become available
-    process = Popen(["ems-flasher"] + commands + queue, stdout = PIPE)
-    output, error = process.communicate()
-    exit_code = process.wait()
-    
-    # Check if the command was executed successfully
+    exit_code = 0
+    for i in range(0, 3): # Perform 3 attempts
+        sleep(1) # Wait for the cartridge to become available
+        process = Popen(["ems-flasher"] + commands + queue, stdout = PIPE)
+        output, error = process.communicate()
+        exit_code = process.wait()
+        
+        # Check if the command was executed successfully
+        if exit_code == 0:
+            break
+
     if exit_code != 0:
         dialog = Gtk.MessageDialog(window, 0, Gtk.MessageType.ERROR,
-                                   Gtk.ButtonsType.OK, error_message)
-        
+                                       Gtk.ButtonsType.OK, error_message)
+            
         dialog.run()
         dialog.destroy()
             
@@ -362,6 +366,7 @@ header_bar.pack_end(button_refresh)
 
 # Window
 window = Gtk.Window()
+window.set_icon_from_file("Game-Boy-Color-Game.png")
 window.set_border_width(10)
 window.set_default_size(1024, 768)
 window.set_titlebar(header_bar)
