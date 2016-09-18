@@ -22,11 +22,12 @@ import re
 
 from os import stat, getuid, path, getcwd
 from subprocess import Popen, PIPE
+from threading import Thread
 from time import sleep
 
 from gi import require_version
 require_version("Gtk", "3.0")
-from gi.repository import Gtk, Gio, Gdk
+from gi.repository import Gtk, Gio, Gdk, GLib
 
 # When the search key-combination is pressed
 def on_key_search(widget, event = None):
@@ -88,7 +89,7 @@ def on_button_add(button):
     page_id = stack_pages.get_visible_child_name()
     target_store = list_stores[0] if page_id  == "page_1" else list_stores[1]
     if response == Gtk.ResponseType.OK:
-       for path in dialog.get_filenames():           
+       for path in dialog.get_filenames():
            filename = path.split("/")
            filename = filename[len(filename) - 1]
            
@@ -133,9 +134,13 @@ def on_button_format(button):
     dialog.destroy()
 
     if response == Gtk.ResponseType.YES:
-        ems(["--bank", "1", "--format"], [], "An error occurred while formatting page 1!")
-        ems(["--bank", "2", "--format"], [], "An error occurred while formatting page 2!")
-        
+        ems([{"command":  ["--bank", "1", "--format"],
+              "callback": None,
+              "error":    "An error occurred while formatting page 1!"},
+             {"command":  ["--bank", "2", "--format"],
+              "callback": None,
+              "error":    "An error occurred while formatting page 2!"}])
+    
         for store in list_stores:
             for entry in store:
                 if entry[2] == "To be removed" or entry[2] == "On cartridge":
@@ -148,85 +153,130 @@ def scan_cartridge():
             if entry[2] == "On cartridge":
                 store.remove(entry.iter)
     
-    for page in range(1, 3):
-        output = ems(["--bank", str(page), "--title"], [],
-                     "An error occurred while scanning the cartridge contents!")
-        data = output.decode("utf-8")
-        match_bank  = re.search("Bank",  data)
-        match_title = re.search("Title", data)
-        match_size  = re.search("Size",  data)
-        match_enh   = re.search("Enhancements", data)
-        
-        titles_data = data[:-79].split("\n")
-        titles_data.pop(0)
-        
-        occupied_space = 0.0
-        target_store = list_stores[page - 1]
-        for entry in titles_data:
-            if len(entry) > 0:
-                size_string   = entry[match_size.start():match_enh.start()]
-                digits_string = re.search("[\d]+", size_string)
-                size = int(digits_string.group())
-                occupied_space += size
-                
-                target_store.append((entry[match_title.start():match_size.start()],
-                                     size,
-                                     "On cartridge",
-                                     "N/A",
-                                     entry[match_bank.start():match_title.start()],
-                                     "#FFAAFF"))
+    ems([{"command":  ["--bank", "1", "--title"],
+          "callback": process_scanned_data,
+          "error":    "An error occurred while scanning page 1!"},
+         {"command":  ["--bank", "2", "--title"],
+          "callback": process_scanned_data,
+          "error":    "An error occurred while scanning page 2!"}])
 
-        if occupied_space > 0:
-            space_bars[page - 1].set_text(str('%.2f' % (32 - occupied_space / 1024)) + \
-                                          "MB remaining")
-            space_bars[page - 1].set_fraction(1 - 32 / (occupied_space / 1024))
+# When processing scanned data
+def process_scanned_data(data):
+    match_bank  = re.search("Bank",         data)
+    match_title = re.search("Title",        data)
+    match_size  = re.search("Size",         data)
+    match_enh   = re.search("Enhancements", data)
+    match_page  = re.search("Page: ",       data)
+    
+    titles_data = data[:-79].split("\n")
+    titles_data.pop(0)
+    
+    page = int(data[match_page.end()]) - 1
+    occupied_space = 0.0
+    target_store = list_stores[page]
+    for entry in titles_data:
+        if len(entry) > 0:
+            size_string   = entry[match_size.start():match_enh.start()]
+            digits_string = re.search("[\d]+", size_string)
+            size = int(digits_string.group())
+            occupied_space += size
+            
+            target_store.append((entry[match_title.start():match_size.start()],
+                                 size,
+                                 "On cartridge",
+                                 "N/A",
+                                 entry[match_bank.start():match_title.start()],
+                                 "#FFAAFF"))
+            
+    if occupied_space > 0:
+        space_bars[page].set_text(str('%.2f' % (32 - occupied_space / 1024)) + \
+                                  "MB remaining")
+        space_bars[page].set_fraction(1 - 32 / (occupied_space / 1024))
 
 # When flashing the cartridge
 def flash_cartridge(additions, removals):
-    output_0 = None
-    output_1 = None
-    for page in range(1, 3):
-        if removals[page -1]:
-            output_0 = ems(["--bank", str(page), "--delete"], removals[page - 1],
-                           "An error occurred while deleting titles from page " + \
-                           str(page) + "!")
-            
-        if additions[page - 1]:
-            output_1 = ems(["--bank", str(page), "--write"], additions[page - 1],
-                           "An error occurred while flashing titles to page " + \
-                           str(page) + "!\n" + "Perhaps one of the ROMs you are" + \
-                           "flashing is already on the cartridge?")
+    chain = []
     
-    if output_0 == None and output_1 == None:
-        dialog = Gtk.MessageDialog(window, 0, Gtk.MessageType.INFO, Gtk.ButtonsType.OK,
-                                   "Changes successfully flashed!")
-        
-        dialog.run()
-        dialog.destroy()
+    for page in range(0, 2):
+        if len(removals[page]) > 0:
+            chain.append({"command":  ["--bank", str(page + 1), "--delete"] + \
+                                      removals[page],
+                          "callback": None,
+                          "error":    "An error occurred while deleting titles from " + \
+                                      "page " + str(page + 1) + "!"})
+
+    for page in range(0, 2):
+        if len(additions[page]) > 0:
+            chain.append({"command":  ["--bank", str(page + 1), "--write"] + \
+                                      additions[page],
+                          "callback": None,
+                          "error":    "An error occurred while flashing titles to " + \
+                                      "page " + str(page + 1) + "!\n"               + \
+                                      "Perhaps one of the ROMs you are "            + \
+                                      "flashing is already on the cartridge?"})
     
-    scan_cartridge()
+    if len(removals[0])  > 0 or \
+       len(removals[1])  > 0 or \
+       len(additions[0]) > 0 or \
+       len(additions[1]) > 0:
+        ems(chain)
+        scan_cartridge()
 
 # When using the flashing utility
-def ems(commands, queue, error_message):
-    exit_code = 0
-    for i in range(0, 3): # Perform 3 attempts
-        sleep(1) # Wait for the cartridge to become available
-        process = Popen(["ems-flasher"] + commands + queue, stdout = PIPE)
-        output, error = process.communicate()
-        exit_code = process.wait()
-        
-        # Check if the command was executed successfully
-        if exit_code == 0:
-            break
+def ems(chain):
+    def cleanup(thread_id):
+        threads[thread_id].join()
+        threads.pop(thread_id)
 
-    if exit_code != 0:
-        dialog = Gtk.MessageDialog(window, 0, Gtk.MessageType.ERROR,
-                                       Gtk.ButtonsType.OK, error_message)
+        if not threads:
+            spinner.stop()
+            button_add.set_sensitive(True)
+            button_flash.set_sensitive(True)
+            button_format.set_sensitive(True)
+            button_refresh.set_sensitive(True)
+            button_remove.set_sensitive(True)
+            button_search.set_sensitive(True)
+    
+    def ems_thread(operation, thread_id):
+        exit_code = -1
+        for i in range(0, 3): # Perform 3 attempts
+            sleep(1) # Wait for the cartridge to become available
+            process = Popen(["ems-flasher"] + operation["command"], stdout = PIPE)
+            output, error = process.communicate()
+            exit_code = process.wait()
             
-        dialog.run()
-        dialog.destroy()
+            # Check if the command was executed successfully
+            if exit_code == 0:
+                break
+
+        if exit_code != 0:
+            GLib.idle_add(raise_error, operation["error"])
+        elif operation["callback"] != None:
+            GLib.idle_add(operation["callback"], output.decode("utf-8"))
             
-    return output
+        GLib.idle_add(cleanup, thread_id)
+    
+    button_add.set_sensitive(False)
+    button_flash.set_sensitive(False)
+    button_format.set_sensitive(False)
+    button_refresh.set_sensitive(False)
+    button_remove.set_sensitive(False)
+    button_search.set_sensitive(False)
+    spinner.start()
+            
+    threads = {}
+    for i in range(len(chain)):
+        t = Thread(target = ems_thread, args = (chain[i], i))
+        threads[i] = t
+        t.start()
+
+# When an error message should be triggered
+def raise_error(message):
+    dialog = Gtk.MessageDialog(window, 0, Gtk.MessageType.ERROR,
+                               Gtk.ButtonsType.OK, message)
+    dialog.run()
+    dialog.destroy()
+            
         
 # ROM lists
 rom_lists = []
@@ -350,11 +400,16 @@ button_format.connect("clicked", on_button_format)
 button_format.add(image_format)
 button_format.set_tooltip_text("Format the cartridge")
 
+# Spinner
+spinner = Gtk.Spinner()
+spinner.set_tooltip_text("Indicates cartridge access")
+
 # Header bar
 header_bar = Gtk.HeaderBar()
 header_bar.set_show_close_button(True)
 header_bar.props.title = "GB USB Smart Card Flasher"
 header_bar.pack_start(stack_switcher_pages)
+header_bar.pack_start(spinner)
 header_bar.pack_end(button_search)
 header_bar.pack_end(Gtk.VSeparator())
 header_bar.pack_end(button_remove)

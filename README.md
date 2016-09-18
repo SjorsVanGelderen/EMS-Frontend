@@ -15,13 +15,14 @@ Uses PyGObject bindings.
 - This utility hasn't been tested extensively
 - The utility might appear to lock up when flashing
 - Sometimes an error actually freezes the utility
+- This utility doesn't wait for the cartridge to become available properly
+  - Unfortunately, this causes many errors
 
 ***
 
 ##Todo  
+- Implement search functionality
 - Test flashing large ROMs
-- Add async and spinner for non-blocking operation
 - Bundle with EMS flasher
 - Build deb / rpm / etc packages
-- Properly handle errors
-- Implement search functionality
+- Log errors(possibly with verbose messages from EMS flasher)
