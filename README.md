@@ -24,3 +24,4 @@ Uses PyGObject bindings.
 - Bundle with EMS flasher
 - Build deb / rpm / etc packages
 - Properly handle errors
+- Implement search functionality
