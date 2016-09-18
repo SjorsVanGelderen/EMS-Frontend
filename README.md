@@ -21,6 +21,7 @@ Uses PyGObject bindings.
 ***
 
 ##Todo  
+- Implement enhancements
 - Implement search functionality
 - Test flashing large ROMs
 - Bundle with EMS flasher
