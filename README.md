@@ -11,6 +11,14 @@ Uses PyGObject bindings.
 
 ***
 
+##Installation  
+Currently this program is just supplied as a script; so there is no real installation process.
+
+Install [EMS flasher](https://github.com/mikeryan/ems-flasher) as per the instructions.
+Then run `main.py`.
+
+***
+
 ##Notes  
 - This utility hasn't been tested extensively
 - The utility might appear to lock up when flashing
@@ -28,3 +36,4 @@ Uses PyGObject bindings.
 - Bundle with EMS flasher
 - Build deb / rpm / etc packages
 - Log errors(possibly with verbose messages from EMS flasher)
+- Properly encapsulate and handle errors
