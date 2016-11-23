@@ -11,11 +11,9 @@ Uses PyGObject bindings.
 
 ***
 
-##Installation  
-Currently this program is just supplied as a script; so there is no real installation process.
-
-Install [EMS flasher](https://github.com/mikeryan/ems-flasher) as per the instructions.
-Then run `main.py`.
+##Usage
+Clone the repository or download the "ems-flasher" and "run" files.
+The "run" file should be executed to launch the program.
 
 ***
 
